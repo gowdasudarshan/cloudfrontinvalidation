@@ -1,0 +1,29 @@
+# Example configuration for multiple S3 buckets and CloudFront distributions
+bucket_distribution_mapping = {
+  # Website bucket with assets prefix filter
+  "my-website-bucket" = {
+    cloudfront_distribution_id = "E1234567890ABC"
+    prefix_filter             = "assets/"  # Only invalidate files in assets/ folder
+    suffix_filter             = ""
+  }
+  
+  # API documentation bucket
+  "my-api-docs-bucket" = {
+    cloudfront_distribution_id = "E0987654321XYZ"
+    prefix_filter             = ""
+    suffix_filter             = ".html"     # Only invalidate HTML files
+  }
+  
+  # Static content bucket without filters
+  "my-static-content-bucket" = {
+    cloudfront_distribution_id = "E5555666677ABC"
+    # No filters - invalidate all objects
+  }
+  
+  # Media bucket with specific folder
+  "my-media-bucket" = {
+    cloudfront_distribution_id = "E1111222233DEF"
+    prefix_filter             = "public/"
+    suffix_filter             = ""
+  }
+}
