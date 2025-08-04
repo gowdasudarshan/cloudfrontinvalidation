@@ -1,10 +1,12 @@
 # Data sources for existing resources
-data "aws_s3_bucket" "existing_bucket" {
-  bucket = var.bucket_name
+data "aws_s3_bucket" "existing_buckets" {
+  for_each = var.bucket_distribution_mapping
+  bucket   = each.key
 }
 
-data "aws_cloudfront_distribution" "existing_distribution" {
-  id = var.cloudfront_distribution_id
+data "aws_cloudfront_distribution" "existing_distributions" {
+  for_each = var.bucket_distribution_mapping
+  id       = each.value.cloudfront_distribution_id
 }
 
 # IAM role for Lambda function
@@ -38,7 +40,9 @@ resource "aws_iam_policy" "cloudfront_invalidation_policy" {
         Action = [
           "cloudfront:CreateInvalidation"
         ]
-        Resource = data.aws_cloudfront_distribution.existing_distribution.arn
+        Resource = [
+          for dist in data.aws_cloudfront_distribution.existing_distributions : dist.arn
+        ]
       }
     ]
   })
@@ -96,7 +100,9 @@ resource "aws_lambda_function" "cloudfront_invalidation" {
 
   environment {
     variables = {
-      CLOUDFRONT_DISTRIBUTION_ID = var.cloudfront_distribution_id
+      BUCKET_DISTRIBUTION_MAPPING = jsonencode({
+        for bucket_name, config in var.bucket_distribution_mapping : bucket_name => config.cloudfront_distribution_id
+      })
     }
   }
 }
@@ -107,22 +113,28 @@ resource "aws_cloudwatch_log_group" "lambda_logs" {
   retention_in_days = 14
 }
 
-# Lambda permission to allow S3 to invoke the function
+# Lambda permissions to allow S3 buckets to invoke the function
 resource "aws_lambda_permission" "allow_s3" {
-  statement_id  = "AllowExecutionFromS3Bucket"
+  for_each      = var.bucket_distribution_mapping
+  statement_id  = "AllowExecutionFromS3Bucket-${each.key}"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.cloudfront_invalidation.function_name
   principal     = "s3.amazonaws.com"
-  source_arn    = data.aws_s3_bucket.existing_bucket.arn
+  source_arn    = data.aws_s3_bucket.existing_buckets[each.key].arn
 }
 
-# S3 bucket notification
-resource "aws_s3_bucket_notification" "bucket_notification" {
-  bucket = data.aws_s3_bucket.existing_bucket.id
+# S3 bucket notifications
+resource "aws_s3_bucket_notification" "bucket_notifications" {
+  for_each = var.bucket_distribution_mapping
+  bucket   = data.aws_s3_bucket.existing_buckets[each.key].id
 
   lambda_function {
     lambda_function_arn = aws_lambda_function.cloudfront_invalidation.arn
     events              = ["s3:ObjectCreated:*"]
+    
+    # Add optional prefix and suffix filters
+    filter_prefix = each.value.prefix_filter != "" ? each.value.prefix_filter : null
+    filter_suffix = each.value.suffix_filter != "" ? each.value.suffix_filter : null
   }
 
   depends_on = [aws_lambda_permission.allow_s3]
